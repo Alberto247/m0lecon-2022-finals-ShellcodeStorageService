@@ -14,12 +14,18 @@
 #include <sys/prctl.h>
 #include <fcntl.h>
 #include <stddef.h>
+#include <dirent.h> 
 #include "sha256.h"
 
 FILE* pwdfile;
+int tot_shellcodes_run=0;
 
-static int install_syscall_filter_anon(void)
+static int install_shellcode_protections(char* path)
 {
+    if(chroot(path)){
+        perror("Cannot chroot");
+        exit(-1);
+    }
 	struct sock_filter filter[] = {
         /* validate arch */
         BPF_STMT(BPF_LD|BPF_W|BPF_ABS, (offsetof(struct seccomp_data, arch))),
@@ -30,9 +36,15 @@ static int install_syscall_filter_anon(void)
 		/* List allowed syscalls. */
         BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_exit, 0, 1),
         BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW),
+        BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_open, 0, 1),
+        BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW),
         BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_lseek, 0, 1),
         BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW),
+        BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_read, 0, 1),
+        BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW),
         BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_nanosleep, 0, 1),
+        BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW),
+        BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_chdir, 0, 1),
         BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW),
 		BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_write, 0, 3), //IF NOT WRITE, BLOCK
         BPF_STMT(BPF_LD | BPF_W | BPF_ABS, (offsetof(struct seccomp_data, args[0]))), //IF WRITE GET FIRST ARG
@@ -65,8 +77,189 @@ void sha256(char* data, int size, char* hash){
 
 static void handler(int sig, siginfo_t *si, void *unused)
 {
-    printf("Got SIGSEGV or SIGILL or SIGBUS or SIGFPE, looks like your shellcode is broken.");
+    puts("Got SIGSEGV or SIGILL or SIGBUS or SIGFPE, looks like your shellcode is broken.");
     exit(-1);
+}
+
+void listFiles(char* dirname){
+    DIR *d;
+    struct dirent *dir;
+    d = opendir(dirname);
+    if (d) {
+        while ((dir = readdir(d)) != NULL && strcmp(dir->d_name, ".")!=0 && strcmp(dir->d_name, "..")!=0) {
+        printf(" - %s\n", dir->d_name);
+        }
+        closedir(d);
+    }
+    return;
+}
+
+void printFile(char* dirname){
+    char filepath[32+128];
+    char filename[128];
+    puts("Which shellcode do you want to read?");
+    printf("> ");
+    fgets(filename, 127, stdin);
+    filename[strcspn(filename, "\n")] = 0;
+    filename[strcspn(filename, ".")] = 0;
+    strncpy(filepath, dirname, 32);
+    strcat(filepath, "/");
+    strcat(filepath, filename);
+    FILE* f = fopen(filepath, "r");
+    if(f==NULL){
+        puts("Shellcode not found.");
+        return;
+    }
+    char c = fgetc(f);
+    while (c != EOF)
+    {
+        printf ("%c", c);
+        c = fgetc(f);
+    }
+    fclose(f);
+}
+
+void saveFile(char* dirname){
+    char filepath[32+128];
+    char filename[128];
+    puts("What's the name of your shellcode?");
+    printf("> ");
+    fgets(filename, 127, stdin);
+    filename[strcspn(filename, "\n")] = 0;
+    filename[strcspn(filename, ".")] = 0;
+    strncpy(filepath, dirname, 32);
+    strcat(filepath, "/");
+    strcat(filepath, filename);
+    FILE* f = fopen(filepath, "w");
+    if(f==NULL){
+        puts("Could not create a shellcode with that name.");
+        return;
+    }
+    unsigned char code[256] = {0};
+    fgets(code, 255, stdin);
+    fwrite(code, 255, 1, f);
+    fclose(f);
+}
+
+void runFile(char* dirname){
+    char filepath[32+128];
+    char filename[128];
+    puts("What's the name of your shellcode?");
+    printf("> ");
+    fgets(filename, 127, stdin);
+    filename[strcspn(filename, "\n")] = 0;
+    filename[strcspn(filename, ".")] = 0;
+    strncpy(filepath, dirname, 32);
+    strcat(filepath, "/");
+    strcat(filepath, filename);
+    FILE* f = fopen(filepath, "r");
+    if(f==NULL){
+        puts("Could not load a shellcode with that name.");
+        return;
+    }
+    unsigned char code[256] = {0};
+    fgets(code, 255, f);
+    fclose(f);
+    void (*shellcode) (void) = NULL;
+    shellcode = mmap (0, 256, PROT_READ|PROT_WRITE|PROT_EXEC,
+          MAP_PRIVATE|MAP_ANONYMOUS, -1, 0);
+    memcpy(shellcode, code, 256);
+    __builtin___clear_cache (shellcode, shellcode + sizeof(shellcode));
+    if(!fork()){
+        struct sigaction action;
+        memset(&action, 0, sizeof(struct sigaction));
+        action.sa_flags = SA_SIGINFO;
+        action.sa_sigaction=handler;
+        sigaction(SIGSEGV, &action, NULL);
+        sigaction(SIGILL, &action, NULL);
+        sigaction(SIGBUS, &action, NULL);
+        sigaction(SIGFPE, &action, NULL);
+        strncpy(filepath, dirname, 32);
+        strcat(filepath, "/");
+        install_shellcode_protections(filepath);
+        shellcode();
+        exit(0);
+    }
+    sleep(5);
+    puts("Your shellcode should have been run!");
+}
+
+void runShellcode(char* dirname){
+    char filepath[32+128];
+    void (*shellcode) (void) = NULL;
+    unsigned char code[256] = {0};
+    shellcode = mmap (0, 256, PROT_READ|PROT_WRITE|PROT_EXEC,
+          MAP_PRIVATE|MAP_ANONYMOUS, -1, 0);
+    puts("Send the bytes of your shellcode!");
+    fgets(code, 255, stdin);
+    memcpy(shellcode, code, 256);
+    __builtin___clear_cache (shellcode, shellcode + sizeof(shellcode));
+    if(!fork()){
+        struct sigaction action;
+        memset(&action, 0, sizeof(struct sigaction));
+        action.sa_flags = SA_SIGINFO;
+        action.sa_sigaction=handler;
+        sigaction(SIGSEGV, &action, NULL);
+        sigaction(SIGILL, &action, NULL);
+        sigaction(SIGBUS, &action, NULL);
+        sigaction(SIGFPE, &action, NULL);
+        strncpy(filepath, dirname, 32);
+        strcat(filepath, "/");
+        install_shellcode_protections(filepath);
+        shellcode();
+        exit(0);
+    }
+    sleep(5);
+    puts("Your shellcode should have been run!");
+}
+
+void userMenu(int id){
+        puts("");
+        printf("Welcome to your private area user %d!\n", id);
+        puts("1. List your shellcodes");
+        puts("2. Print a shellcode");
+        puts("3. Save a shellcode");
+        puts("4. Execute a shellcode");
+        puts("5. Execute a shellcode without saving it");
+        puts("6. Logout");
+        printf("> ");
+}
+
+void userHandler(int id){
+    char choice;
+    char dirname[32];
+    sprintf(dirname, "./data/%d", id);
+    while(1){
+        userMenu(id);
+        read(STDIN_FILENO, &choice, 1);
+        getchar();
+        if(choice=='6'){
+            puts("Goodbye!");
+            return;
+        }else if(choice=='1'){
+            listFiles(dirname);
+        }else if(choice=='2'){
+            printFile(dirname);
+        }else if(choice=='3'){
+            saveFile(dirname);
+        }else if(choice=='4'){
+            if(tot_shellcodes_run<5){
+                tot_shellcodes_run++;
+                runFile(dirname);
+            }else{
+                puts("Sorry, only 5 shellcodes can be run. Please disconnect and reconnect to run more.");
+            }
+        }else if(choice=='5'){
+            if(tot_shellcodes_run<5){
+                tot_shellcodes_run++;
+                runShellcode(dirname);
+            }else{
+                puts("Sorry, only 5 shellcodes can be run. Please disconnect and reconnect to run more.");
+            }
+        }else{
+            puts("Unknown option.");
+        }
+    }
 }
 
 void initialize(){
@@ -87,65 +280,8 @@ void mainMenu(){
     puts("Welcome to S3 (Shellcode Storage Service)!");
     puts("1. Log In");
     puts("2. Register");
-    puts("3. Test the service");
-    puts("4. Exit");
+    puts("3. Exit");
     printf("> ");
-}
-
-
-void listFiles(){
-
-}
-
-void printFile(){
-
-}
-
-void saveFile(){
-
-}
-
-void runFile(){
-
-}
-
-void userMenu(int id){
-        printf("Welcome to your private area user %d!\n", id);
-        puts("1. List your shellcodes");
-        puts("2. Print a shellcode");
-        puts("3. Save a shellcode");
-        puts("4. Execute a shellcode");
-        puts("5. Exit");
-        printf("> ");
-}
-
-void userHandler(int id){
-    char choice;
-    int n_shellcodes_running=0;
-    while(1){
-        userMenu(id);
-        read(STDIN_FILENO, &choice, 1);
-        getchar();
-        if(choice=='5'){
-            printf("Goodbye!");
-            exit(0);
-        }else if(choice=='1'){
-            listFiles();
-        }else if(choice=='2'){
-            printFile();
-        }else if(choice=='3'){
-            saveFile();
-        }else if(choice=='4'){
-            if(n_shellcodes_running<5){
-                n_shellcodes_running++;
-                runFile();
-            }else{
-                puts("Sorry, only 5 shellcodes can be run at each login.");
-            }
-        }else{
-            puts("Unknown option.");
-        }
-    }
 }
 
 void loginUser(){
@@ -198,59 +334,32 @@ void registerUser(){
         perror("Cannot unlock file");
         exit(-1);
     }
+    char dirname[32];
+    sprintf(dirname, "./data/%d", id);
+    mkdir(dirname, 0777);
     printf("Your user's ID is: %d\n", id);
-}
-
-void anonymousShellcode(){
-    void (*anonshell) (void) = NULL;
-    unsigned char code[256] = {0};
-    anonshell = mmap (0, 256, PROT_READ|PROT_WRITE|PROT_EXEC,
-          MAP_PRIVATE|MAP_ANONYMOUS, -1, 0);
-    puts("Send the bytes of your shellcode!");
-    fgets(code, 255, stdin);
-    memcpy(anonshell, code, 256);
-    __builtin___clear_cache (anonshell, anonshell + sizeof(anonshell));
-    if(!fork()){
-        struct sigaction action;
-        memset(&action, 0, sizeof(struct sigaction));
-        action.sa_flags = SA_SIGINFO;
-        action.sa_sigaction=handler;
-        sigaction(SIGSEGV, &action, NULL);
-        sigaction(SIGILL, &action, NULL);
-        sigaction(SIGBUS, &action, NULL);
-        sigaction(SIGFPE, &action, NULL);
-        install_syscall_filter_anon();
-        anonshell();
-        exit(0);
-    }
-    sleep(5);
-    puts("Your shellcode should have been run!");
 }
 
 int main(){
     initialize();
     banner();
     char choice;
-    int anonShellcodeRunning=0;
     pwdfile = fopen("passwords", "a+");
+    struct stat st;
+    if (stat("./data", &st) == -1) {
+        mkdir("./data", 0777);
+    }
     while(1){
         mainMenu();
         read(STDIN_FILENO, &choice, 1);
         getchar();
-        if(choice=='4'){
+        if(choice=='3'){
             printf("Goodbye!");
             exit(0);
         }else if(choice=='1'){
             loginUser();
         }else if(choice=='2'){
             registerUser();
-        }else if(choice=='3'){
-            if(anonShellcodeRunning!=0){
-                puts("Sorry, a shellcode has already been run.");
-            }else{
-                anonShellcodeRunning=1;
-                anonymousShellcode();
-            }
         }else{
             puts("Unknown option.");
         }
