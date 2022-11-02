@@ -1,0 +1,9 @@
+version: '3.3'
+
+services:
+    s3:
+        build: .
+        # volumes:
+        #    - "./data:/root/data"
+        ports:
+           - "8392:8392"

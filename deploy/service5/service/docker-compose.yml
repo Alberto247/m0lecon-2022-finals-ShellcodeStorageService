@@ -1,0 +1,7 @@
+version: '3.3'
+
+services:
+    s3:
+        build: .
+        ports:
+           - "8392:8392"

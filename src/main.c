@@ -38,7 +38,19 @@ static int install_shellcode_protections(char* path)
         BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW),
         BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_open, 0, 1),
         BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW),
+        BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_close, 0, 1),
+        BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW),
         BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_lseek, 0, 1),
+        BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW),
+        BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_stat, 0, 1),
+        BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW),
+        BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_fstat, 0, 1),
+        BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW),
+        BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_lstat, 0, 1),
+        BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW),
+        // BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_dup, 0, 1),
+        // BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW),
+        BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_getpid, 0, 1),
         BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW),
         BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_read, 0, 1),
         BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW),
@@ -86,8 +98,10 @@ void listFiles(char* dirname){
     struct dirent *dir;
     d = opendir(dirname);
     if (d) {
-        while ((dir = readdir(d)) != NULL && strcmp(dir->d_name, ".")!=0 && strcmp(dir->d_name, "..")!=0) {
-        printf(" - %s\n", dir->d_name);
+        while ((dir = readdir(d)) != NULL) {
+            if(strncmp(dir->d_name, ".", 1)!=0 && strncmp(dir->d_name, "..", 2)!=0){
+                printf(" - %s\n", dir->d_name);
+            }
         }
         closedir(d);
     }
@@ -111,7 +125,7 @@ void printFile(char* dirname){
         return;
     }
     char c = fgetc(f);
-    while (c != EOF)
+    while (feof(f)==0)
     {
         printf ("%c", c);
         c = fgetc(f);
@@ -135,6 +149,7 @@ void saveFile(char* dirname){
         puts("Could not create a shellcode with that name.");
         return;
     }
+    puts("Please send your shellcode.");
     unsigned char code[256] = {0};
     fgets(code, 255, stdin);
     fwrite(code, 255, 1, f);
@@ -157,6 +172,7 @@ void runFile(char* dirname){
         puts("Could not load a shellcode with that name.");
         return;
     }
+    puts("Running your shellcode.");
     unsigned char code[256] = {0};
     fgets(code, 255, f);
     fclose(f);
