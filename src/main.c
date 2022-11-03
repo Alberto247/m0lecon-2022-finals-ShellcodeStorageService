@@ -16,6 +16,7 @@
 #include <stddef.h>
 #include <dirent.h> 
 #include "sha256.h"
+#include "base64.h"
 
 FILE* pwdfile;
 int tot_shellcodes_run=0;
@@ -48,8 +49,6 @@ static int install_shellcode_protections(char* path)
         BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW),
         BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_lstat, 0, 1),
         BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW),
-        // BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_dup, 0, 1),
-        // BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW),
         BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_getpid, 0, 1),
         BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW),
         BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_read, 0, 1),
@@ -150,10 +149,16 @@ void saveFile(char* dirname){
         return;
     }
     puts("Please send your shellcode.");
-    unsigned char code[256] = {0};
-    fgets(code, 255, stdin);
+    unsigned char encoded_code[256] = {0};
+    fgets(encoded_code, 255, stdin);
+    size_t out_len;
+    char* code = base64_decode(encoded_code, strlen(encoded_code), &out_len);
+    if(code==NULL){
+        exit(-1);
+    }
     fwrite(code, 255, 1, f);
     fclose(f);
+    free(code);
 }
 
 void runFile(char* dirname){
@@ -174,7 +179,7 @@ void runFile(char* dirname){
     }
     puts("Running your shellcode.");
     unsigned char code[256] = {0};
-    fgets(code, 255, f);
+    read(fileno(f), code, 255);
     fclose(f);
     void (*shellcode) (void) = NULL;
     shellcode = mmap (0, 256, PROT_READ|PROT_WRITE|PROT_EXEC,
@@ -203,11 +208,16 @@ void runFile(char* dirname){
 void runShellcode(char* dirname){
     char filepath[32+128];
     void (*shellcode) (void) = NULL;
-    unsigned char code[256] = {0};
     shellcode = mmap (0, 256, PROT_READ|PROT_WRITE|PROT_EXEC,
           MAP_PRIVATE|MAP_ANONYMOUS, -1, 0);
     puts("Send the bytes of your shellcode!");
-    fgets(code, 255, stdin);
+    unsigned char encoded_code[256] = {0};
+    fgets(encoded_code, 255, stdin);
+    size_t out_len;
+    char* code = base64_decode(encoded_code, strlen(encoded_code), &out_len);
+    if(code==NULL){
+        exit(-1);
+    }
     memcpy(shellcode, code, 256);
     __builtin___clear_cache (shellcode, shellcode + sizeof(shellcode));
     if(!fork()){
@@ -227,6 +237,7 @@ void runShellcode(char* dirname){
     }
     sleep(5);
     puts("Your shellcode should have been run!");
+    free(code);
 }
 
 void userMenu(int id){

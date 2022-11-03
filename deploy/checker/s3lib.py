@@ -69,8 +69,8 @@ def run_shellcode(conn, name):
     tmp=conn.recvline()
     if(b"Could not load a shellcode with that name." in tmp):
         raise ValueError("Cannot load shellcode")
-    data=conn.recvuntil(b"Your shellcode should have been run!").replace(b"Your shellcode should have been run!", b"")
-    return data
+    data=conn.recvuntil(b"Your shellcode should have been run!", timeout=10)
+    return data.replace(b"Your shellcode should have been run!", b"")
 
 def run_shellcode_no_save(conn, shellcode):
     conn.recvuntil(b">")
@@ -78,8 +78,8 @@ def run_shellcode_no_save(conn, shellcode):
     conn.recvuntil(b"Send the bytes of your shellcode!\n")
     conn.send(shellcode)
     conn.sendline()
-    data=conn.recvuntil(b"Your shellcode should have been run!").replace(b"Your shellcode should have been run!", b"")
-    return data
+    data=conn.recvuntil(b"Your shellcode should have been run!", timeout=10)
+    return data.replace(b"Your shellcode should have been run!", b"")
 
 def get_normal_shellcode():
     return random.choice([echo_shellcode, calc_shellcode])
@@ -164,7 +164,14 @@ def calc_shellcode(): # checks math
 
 def open_shellcode(f): # checks open, read, close, write
     parts=[f[i:i+8] for i in range(0, len(f), 8)]
-    shellcode=""""""
+    shellcode="""mov rax, 0x2f
+                push rax
+                mov rdi, rsp
+                mov rax, 80
+                syscall
+                mov rax, 0x0
+                push rax
+                """
     for part in parts[::-1]:
         fixed=part.rjust(8, b'\x00')
         shellcode+=f"mov rax, 0x{fixed[::-1].hex()}\n push rax\n"
@@ -174,12 +181,13 @@ def open_shellcode(f): # checks open, read, close, write
     shellcode+="\n mov rax, 2"
     shellcode+="\n syscall"
     shellcode+="""
+                mov rdi, rax
+                mov r8, rax
                 mov rax, 0
-                mov rdi, 4
                 mov rsi, rsp
                 mov rdx, 256
                 syscall
-                mov rdi, 4
+                mov rdi, r8
                 mov rax, 3
                 syscall
                 mov rdx, 256

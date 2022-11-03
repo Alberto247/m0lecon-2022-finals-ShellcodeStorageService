@@ -8,13 +8,14 @@ import sys
 import os
 import hashlib
 import json
+import base64
 os.environ["PWNLIB_NOTERM"] = "1"
 
 from pwn import *
 from s3lib import *
 
 context.timeout = 5
-context.log_level = "error"
+context.log_level = "debug"
 
 data = checklib.get_data()
 action = data['action']
@@ -51,9 +52,11 @@ def check_sla():
     except Exception as e:
         checklib.quit(checklib.Status.DOWN,
                       "Cannot login", str(e))
-    shellcode, expected_output = get_normal_shellcode()()
-    name=get_random_string(32)
-    if(random.randint(0,1)==0): # TODO restore
+    choice=random.randint(0,2)
+    if(choice==0): # check save and load
+        shellcode, expected_output = get_normal_shellcode()()
+        shellcode=base64.b64encode(shellcode)
+        name=get_random_string(32)
         # Check save and load
         try:
             save_shellcode(conn, name, shellcode)
@@ -71,7 +74,7 @@ def check_sla():
                       "Shellcode not in list of saved shellcodes", f"Saved shellcodes are {shellcodes}, {name} not in list")
         try:
             saved_shellcode=get_shellcode(conn, name)
-            if(shellcode not in saved_shellcode):
+            if(base64.b64decode(shellcode) not in saved_shellcode):
                 checklib.quit(checklib.Status.DOWN,
                       "Saved shellcode does not match", f"{shellcode}!={saved_shellcode}")
         except Exception as e:
@@ -86,7 +89,10 @@ def check_sla():
         if(output!=expected_output):
             checklib.quit(checklib.Status.DOWN,
                       "Output from shellcode is not correct", f"{output}!={expected_output}")
-    else:
+    elif(choice==1): # check run without save
+        shellcode, expected_output = get_normal_shellcode()()
+        shellcode=base64.b64encode(shellcode)
+        name=get_random_string(32)
         output=b""
         try:
             output=run_shellcode_no_save(conn, shellcode)
@@ -96,6 +102,26 @@ def check_sla():
         if(output!=expected_output):
             checklib.quit(checklib.Status.DOWN,
                       "Output from shellcode is not correct", f"{output}!={expected_output}")
+    elif(choice==2): # check open
+        check = get_random_string(random.randint(30, 40))
+        name = get_random_string(32)
+        try:
+            save_shellcode(conn, name, base64.b64encode(check))
+        except Exception as e:
+            checklib.quit(checklib.Status.DOWN,
+                      "Cannot save shellcode", str(e))
+        shellcode=open_shellcode(name)
+        shellcode=base64.b64encode(shellcode)
+        output=b""
+        try:
+            output=run_shellcode_no_save(conn, shellcode)
+        except Exception as e:
+            checklib.quit(checklib.Status.DOWN,
+                      "Cannot run shellcode", str(e))
+        if(check not in output):
+            checklib.quit(checklib.Status.DOWN,
+                      "Output from shellcode is not correct", f"{output}!={check}")
+
 
     checklib.quit(checklib.Status.OK, 'OK')
 
