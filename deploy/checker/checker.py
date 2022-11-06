@@ -24,7 +24,7 @@ service_name = 's3'
 
 team_id = data['teamId']
 team_addr = '10.60.' + team_id + '.1'
-team_addr = "127.0.0.1"
+#team_addr = "127.0.0.1"
 
 
 
@@ -171,6 +171,7 @@ def put_flag():
 
     f.write(json.dumps({"id":id,"password":password.decode(), "name":name.decode()}))
     f.close()
+    checklib.post_flag_id("Shellcode Storage Server",team_id,id)
 
     checklib.quit(checklib.Status.OK, 'OK')
 
