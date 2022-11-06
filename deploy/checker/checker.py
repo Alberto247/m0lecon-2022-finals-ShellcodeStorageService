@@ -154,6 +154,7 @@ def put_flag():
 
     name=get_random_string(32)
     shellcode = echo_flag_shellcode(flag.encode())
+    shellcode=base64.b64encode(shellcode)
     try:
         save_shellcode(conn, name, shellcode)
     except Exception as e:

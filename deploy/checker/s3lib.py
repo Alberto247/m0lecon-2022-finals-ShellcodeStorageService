@@ -118,7 +118,7 @@ def calc_shellcode(): # checks math
     start=random.randint(10000, 1000000)
     res=start
     operations=["add", "sub", "xor"]
-    tmp=random.randint(5, 20)
+    tmp=random.randint(5, 15)
     code=f"mov rax, {start}"
     for x in range(tmp):
         op=random.choice(operations)
