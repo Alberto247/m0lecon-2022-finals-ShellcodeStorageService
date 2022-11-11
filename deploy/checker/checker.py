@@ -15,7 +15,7 @@ from pwn import *
 from s3lib import *
 
 context.timeout = 5
-context.log_level = "debug"
+context.log_level = "critical"
 
 data = checklib.get_data()
 action = data['action']
@@ -172,7 +172,7 @@ def put_flag():
 
     f.write(json.dumps({"id":id,"password":password.decode(), "name":name.decode()}))
     f.close()
-    checklib.post_flag_id("Shellcode Storage Server",team_id,id)
+    checklib.post_flag_id("Shellcode Storage Server",str(team_id),str(id))
 
     checklib.quit(checklib.Status.OK, 'OK')
 
