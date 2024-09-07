@@ -187,9 +187,6 @@ def open_shellcode(f): # checks open, read, close, write
                 mov rsi, rsp
                 mov rdx, 256
                 syscall
-                mov rdi, r8
-                mov rax, 3
-                syscall
                 mov rdx, 256
                 mov rdi, 1
                 mov rsi, rsp
